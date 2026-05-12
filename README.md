@@ -8,3 +8,6 @@
 2) **Enter** - вставить запись
 3) **Del** - удалить запись
 4) **Up/Down** - навигация по записям
+
+# Вид программы
+<img width="382" height="161" alt="image" src="https://github.com/user-attachments/assets/f7a672e7-f0bc-4b09-b431-6227a35bbcc4" />
