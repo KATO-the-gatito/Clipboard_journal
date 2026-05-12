@@ -12,9 +12,9 @@
 #define HOTKEY_ID_ACTIVATEWINDOW 1
 #define HOTKEY_ID_COPY 2
 
-#define TXTCOLOR_SELECTED 96 // 6
-#define TXTCOLOR_UNSELECTED 6
-#define TXTCOLOR_ALTNORMAL 7
+#define TXTCOLOR_SELECTED 224 // 96
+#define TXTCOLOR_UNSELECTED 15
+#define TXTCOLOR_NORMAL 10
 
 struct DataObject
 {
@@ -90,11 +90,11 @@ void pasteData() {
 }
 
 void printData() {
-    SetConsoleTextAttribute(hndl, TXTCOLOR_ALTNORMAL);
+    SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "-----------< Clipboard data >-----------\n";
     for (int i = 0; i < copy_buffer.size(); i++) {
-        SetConsoleTextAttribute(hndl, TXTCOLOR_ALTNORMAL);
-        std::cout << "> ";
+        SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
+        printf("<%d> ", i + 1);
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
         if (i == selected_pointer)
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
@@ -102,7 +102,7 @@ void printData() {
         std::cout << '\n';
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
     }
-    SetConsoleTextAttribute(hndl, TXTCOLOR_ALTNORMAL);
+    SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "----------------------------------------\n";
     
 }
