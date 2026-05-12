@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <algorithm>
 //#include <ShlObj_core.h>
 
 #define HOTKEY_ID_ACTIVATEWINDOW 1
@@ -222,6 +223,7 @@ int main() {
                 ShowWindow(hConsole, SW_HIDE); // <--- show
                 is_activated_window = false;
                 pasteData();
+                std::iter_swap(copy_buffer.begin(), copy_buffer.begin() + selected_pointer);
                 is_hotkey_was_pressed = true;
             }
             else if (isDelPressed && !is_hotkey_was_pressed) {
@@ -242,5 +244,4 @@ int main() {
     }
     
     return 0;
-
 }
