@@ -5,6 +5,7 @@
 #include <shellapi.h>
 #include <iostream>
 #include <vector>
+#include <deque>
 #include <string>
 #include <algorithm>
 //#include <ShlObj_core.h>
@@ -15,6 +16,7 @@
 #define TXTCOLOR_SELECTED 224 // 96
 #define TXTCOLOR_UNSELECTED 15
 #define TXTCOLOR_NORMAL 10
+#define TXTCOLOR_BOX 3
 
 struct DataObject
 {
@@ -24,7 +26,7 @@ struct DataObject
 
 HWND hConsole = GetConsoleWindow();
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
-std::vector<DataObject> copy_buffer;
+std::deque<DataObject> copy_buffer;
 HWND hTargetWindow;
 int selected_pointer = 0;
 bool is_activated_window = false;
@@ -49,7 +51,7 @@ void copyData() {
     OpenClipboard(nullptr);
     HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
     wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hMem));
-    if (pText != nullptr) copy_buffer.push_back(DataObject{pText, countLines(pText)});
+    if (pText != nullptr) copy_buffer.push_front(DataObject{pText, countLines(pText)});
     GlobalUnlock(hMem);
     CloseClipboard();
 }
@@ -93,14 +95,12 @@ void printData() {
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "-----------< Clipboard data >-----------\n";
     for (int i = 0; i < copy_buffer.size(); i++) {
-        SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
-        printf("<%d> ", i + 1);
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
         if (i == selected_pointer)
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         PrintWString(copy_buffer[i].data);
-        std::cout << '\n';
-        SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
+        SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
+        std::cout << "\n========================================\n";
     }
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "----------------------------------------\n";
@@ -186,14 +186,11 @@ int main() {
         }
         else if (isEscPressed && !is_hotkey_was_pressed) {
             ShowWindow(hConsole, SW_HIDE); // <--- show
-            is_activated_window = false;            is_hotkey_was_pressed = true;
+            is_activated_window = false;        
+            is_hotkey_was_pressed = true;
         }
         else if (isCtrlPressed && isCPressed && !is_hotkey_was_pressed) {
             copyData();
-            is_hotkey_was_pressed = true;
-        }
-        else if (isEscPressed && !is_hotkey_was_pressed) {
-            ShowWindow(hConsole, SW_HIDE); // <--- show
             is_hotkey_was_pressed = true;
         }
 
