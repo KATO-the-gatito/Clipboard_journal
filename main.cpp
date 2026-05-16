@@ -94,13 +94,18 @@ void pasteData() {
 void printData() {
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "-----------< Clipboard data >-----------\n";
-    for (int i = 0; i < copy_buffer.size(); i++) {
+    int i = 0;
+    for (; i < copy_buffer.size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
         if (i == selected_pointer)
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         PrintWString(copy_buffer[i].data);
         SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
         std::cout << "\n========================================\n";
+    }
+    if (!i) {
+        SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
+        std::cout << "<The buffer is empty>\n";
     }
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "----------------------------------------\n";
