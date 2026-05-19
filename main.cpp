@@ -112,6 +112,7 @@ void printData() {
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         if (is_notice) {
             PrintWString(copy_buffer[i].data.substr(0, 100));
+            SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
             std::cout << "...";
             is_notice = false;
         }
@@ -161,7 +162,7 @@ void gotoActiveLine() {
     for (int i = 0; i < selected_pointer; i++) {
         if (copy_buffer[i].data.size() <= MAX_STRING_SIZE)
             coordLine += (SHORT)copy_buffer[i].cntlines + 1;
-        else coordLine += 3;
+        else coordLine += countLines(copy_buffer[i].data.substr(0, 100)) + 2;
     }
     
     moveCursor(0, coordLine);
