@@ -17,6 +17,7 @@
 #define TXTCOLOR_UNSELECTED 15
 #define TXTCOLOR_NORMAL 10
 #define TXTCOLOR_BOX 3
+#define TXTCOLOR_NOTICE 13
 
 struct DataObject
 {
@@ -95,16 +96,27 @@ void printData() {
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
     std::cout << "-----------< Clipboard data >-----------\n";
     int i = 0;
+    bool is_notice = false;
+
     for (; i < copy_buffer.size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
+        if (copy_buffer[i].data.size() > 10'000) {
+            SetConsoleTextAttribute(hndl, TXTCOLOR_NOTICE);
+            is_notice = true;
+        }
         if (i == selected_pointer)
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
-        PrintWString(copy_buffer[i].data);
+        if (is_notice) {
+            std::cout << "<An object with more than 10'000 chars>";
+            is_notice = false;
+        }
+        else PrintWString(copy_buffer[i].data);
+        
         SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
         std::cout << "\n========================================\n";
     }
     if (!i) {
-        SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
+        SetConsoleTextAttribute(hndl, TXTCOLOR_NOTICE);
         std::cout << "<The buffer is empty>\n";
     }
     SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
@@ -142,7 +154,7 @@ void moveCursor(SHORT x, SHORT y) {
 void gotoActiveLine() {
     SHORT coordLine = 0;
     for (int i = 0; i < selected_pointer; i++) {
-        coordLine += (SHORT)copy_buffer[i].cntlines;
+        coordLine += (SHORT)copy_buffer[i].cntlines + 1;
     }
     
     moveCursor(0, coordLine);
