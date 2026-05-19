@@ -19,6 +19,8 @@
 #define TXTCOLOR_BOX 3
 #define TXTCOLOR_NOTICE 13
 
+#define MAX_STRING_SIZE 2500
+
 struct DataObject
 {
     std::wstring data;
@@ -100,14 +102,17 @@ void printData() {
 
     for (; i < copy_buffer.size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
-        if (copy_buffer[i].data.size() > 10'000) {
+        if (copy_buffer[i].data.size() > 2'500) {
             SetConsoleTextAttribute(hndl, TXTCOLOR_NOTICE);
+            printf("<A text with more than %d chars>\n", MAX_STRING_SIZE);
+            SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
             is_notice = true;
         }
         if (i == selected_pointer)
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         if (is_notice) {
-            std::cout << "<An object with more than 10'000 chars>";
+            PrintWString(copy_buffer[i].data.substr(0, 100));
+            std::cout << "...";
             is_notice = false;
         }
         else PrintWString(copy_buffer[i].data);
@@ -154,7 +159,9 @@ void moveCursor(SHORT x, SHORT y) {
 void gotoActiveLine() {
     SHORT coordLine = 0;
     for (int i = 0; i < selected_pointer; i++) {
-        coordLine += (SHORT)copy_buffer[i].cntlines + 1;
+        if (copy_buffer[i].data.size() <= MAX_STRING_SIZE)
+            coordLine += (SHORT)copy_buffer[i].cntlines + 1;
+        else coordLine += 3;
     }
     
     moveCursor(0, coordLine);
