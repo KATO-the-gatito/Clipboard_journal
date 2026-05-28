@@ -8,6 +8,8 @@
 #include <deque>
 #include <string>
 #include <algorithm>
+#include <stdarg.h>
+#include <array>
 //#include <ShlObj_core.h>
 
 #define HOTKEY_ID_ACTIVATEWINDOW 1
@@ -18,22 +20,56 @@
 #define TXTCOLOR_NORMAL 10
 #define TXTCOLOR_BOX 3
 #define TXTCOLOR_NOTICE 13
+#define TXTCOLOR_PS_SEL 143
+#define TXTCOLOR_PS_UNSEL 3
 
 #define MAX_STRING_SIZE 2500
 
+#define PRINTSTATE_DATA 0
+#define PRINTSTATE_MARKED 1
+
 struct DataObject
 {
+#define PRINTSTATE_DATA 0
+#define PRINTSTATE_MARKED 1
     std::wstring data;
     int cntlines;
 };
 
 HWND hConsole = GetConsoleWindow();
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
-std::deque<DataObject> copy_buffer;
+std::deque<DataObject> copy_buffer, marked_buffer;
+std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
+int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
+std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
 HWND hTargetWindow;
-int selected_pointer = 0;
 bool is_activated_window = false;
 bool is_hotkey_was_pressed = false;
+
+void printfcl(const char* strin, ...) {
+    size_t len = strlen(strin);
+    char str[100];
+    char* chr = str;
+    strcpy(str, strin);
+    int cntr_of_cmds = 0;
+    va_list colors;
+    va_start(colors, strin);
+
+    for (int i = 0; i < len; ++i) {
+        if (str[i] == '@') {
+            str[i] = '\0';
+            vprintf(chr, colors);
+            for (int j = 0; j < cntr_of_cmds; j++)
+                { va_arg(colors, int); }
+            chr = str + i + 1;
+            cntr_of_cmds = 0;
+            SetConsoleTextAttribute(hndl, va_arg(colors, int));
+        }
+        if (str[i] == '%' && str[i + 1] != '%' && str[i - 1] != '%') ++cntr_of_cmds;
+    }
+    printf(chr);
+    va_end(colors);
+}
 
 void PrintWString(const std::wstring& text) {
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -60,7 +96,7 @@ void copyData() {
 }
 
 void pasteData() {
-    std::wstring text = copy_buffer[selected_pointer].data;
+    std::wstring text = (buffers[print_state]->begin() + *pointers[print_state])->data;
 
     if (!OpenClipboard(nullptr)) return;
     EmptyClipboard();
@@ -95,28 +131,31 @@ void pasteData() {
 }
 
 void printData() {
-    SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
-    std::cout << "-----------< Clipboard data >-----------\n";
+    //std::cout << "-----------< Clipboard data >-----------\n";
+    printfcl("@====[@Clipboard data@]=[@Marked data@]====@\n",
+        TXTCOLOR_NORMAL,
+        print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
+        TXTCOLOR_NORMAL,
+        print_state == PRINTSTATE_MARKED ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
+        TXTCOLOR_NORMAL,
+        7);
     int i = 0;
     bool is_notice = false;
 
-    for (; i < copy_buffer.size(); i++) {
+    for (; i < buffers[print_state]->size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
-        if (copy_buffer[i].data.size() > 2'500) {
-            SetConsoleTextAttribute(hndl, TXTCOLOR_NOTICE);
-            printf("<A text with more than %d chars>\n", MAX_STRING_SIZE);
-            SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
+        if ((buffers[print_state]->begin() + i)->data.size() > 2'500) {
+            printfcl("@<A text with more than %d chars>@\n", TXTCOLOR_NOTICE, MAX_STRING_SIZE, TXTCOLOR_UNSELECTED);
             is_notice = true;
         }
-        if (i == selected_pointer)
+        if (i == *pointers[print_state])
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         if (is_notice) {
-            PrintWString(copy_buffer[i].data.substr(0, 100));
-            SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
-            std::cout << "...";
+            PrintWString((buffers[print_state]->begin() + i)->data.substr(0, 100));
+            printfcl("@...@", TXTCOLOR_UNSELECTED, 7);
             is_notice = false;
         }
-        else PrintWString(copy_buffer[i].data);
+        else PrintWString((buffers[print_state]->begin() + i)->data);
         
         SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
         std::cout << "\n========================================\n";
@@ -159,10 +198,10 @@ void moveCursor(SHORT x, SHORT y) {
 
 void gotoActiveLine() {
     SHORT coordLine = 0;
-    for (int i = 0; i < selected_pointer; i++) {
-        if (copy_buffer[i].data.size() <= MAX_STRING_SIZE)
-            coordLine += (SHORT)copy_buffer[i].cntlines + 1;
-        else coordLine += countLines(copy_buffer[i].data.substr(0, 100)) + 2;
+    for (int i = 0; i < *pointers[print_state]; i++) {
+        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE)
+            coordLine += (SHORT)(buffers[print_state]->begin() + i)->cntlines + 1;
+        else coordLine += countLines((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
     }
     
     moveCursor(0, coordLine);
@@ -192,9 +231,14 @@ int main() {
         bool isWinPressed = GetAsyncKeyState(VK_LWIN) || GetAsyncKeyState(VK_RWIN);
         bool isVPressed = GetAsyncKeyState('V') & 0x8000;
         bool isCPressed = GetAsyncKeyState('C') & 0x8000;
+        bool isMPressed = GetAsyncKeyState('M') & 0x8000;
         bool isEscPressed = GetAsyncKeyState(VK_ESCAPE) & 0x8000;
         bool isEnterPressed = GetAsyncKeyState(VK_RETURN) & 0x8000;
         bool isDelPressed = GetAsyncKeyState(VK_DELETE) & 0x8000;
+        bool isDownPressed = GetAsyncKeyState(VK_DOWN) & 0x8000;
+        bool isUpPressed = GetAsyncKeyState(VK_UP) & 0x8000;
+        bool isLeftPressed = GetAsyncKeyState(VK_LEFT) & 0x8000;
+        bool isRightPressed = GetAsyncKeyState(VK_RIGHT) & 0x8000;
 
         if (isCtrlPressed && isAltPressed && isVPressed && !is_hotkey_was_pressed) {
             hTargetWindow = GetForegroundWindow();
@@ -202,16 +246,8 @@ int main() {
             ForceForegroundWindow(hConsole);
             system("cls");
             printData();
+            gotoActiveLine();
             is_activated_window = true;
-            is_hotkey_was_pressed = true;
-        }
-        else if (isCtrlPressed && isCPressed && !is_hotkey_was_pressed) {
-            copyData();
-            is_hotkey_was_pressed = true;
-        }
-        else if (isEscPressed && !is_hotkey_was_pressed) {
-            ShowWindow(hConsole, SW_HIDE); // <--- show
-            is_activated_window = false;        
             is_hotkey_was_pressed = true;
         }
         else if (isCtrlPressed && isCPressed && !is_hotkey_was_pressed) {
@@ -220,41 +256,66 @@ int main() {
         }
 
         if (is_activated_window) {
-            bool isDownPressed = GetAsyncKeyState(VK_DOWN) & 0x8000;
-            bool isUpPressed = GetAsyncKeyState(VK_UP) & 0x8000;
-
             if (isUpPressed && !is_hotkey_was_pressed) {
-                if (selected_pointer - 1 >= 0) {
-                    selected_pointer--;
+                if (*pointers[print_state] - 1 >= 0) {
+                    --*pointers[print_state];
                     system("cls");
                     printData();
+                    gotoActiveLine();
                 }
-                gotoActiveLine();
                 is_hotkey_was_pressed = true;
             }
             else if (isDownPressed && !is_hotkey_was_pressed) {
-                if (selected_pointer + 1 < copy_buffer.size()) {
-                    selected_pointer++;
+                if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
+                    ++*pointers[print_state];
                     system("cls");
                     printData();
+                    gotoActiveLine();
                 }
-                gotoActiveLine();
+                is_hotkey_was_pressed = true;
+            }
+            else if (isLeftPressed && !is_hotkey_was_pressed) {
+                if (print_state - 1 >= 0) {
+                    --print_state;
+                    system("cls");
+                    printData();
+                    gotoActiveLine();   
+                }
+                is_hotkey_was_pressed = true;
+            }
+            else if (isRightPressed && !is_hotkey_was_pressed) {
+                if (print_state + 1 < 2) {
+                    ++print_state;
+                    system("cls");
+                    printData();
+                    gotoActiveLine();   
+                }
+                is_hotkey_was_pressed = true;
+            }
+            else if (isMPressed && !is_hotkey_was_pressed) {
+                if (print_state == 0) marked_buffer.push_front(copy_buffer[selected_pointer]);
                 is_hotkey_was_pressed = true;
             }
             else if (isEnterPressed && !is_hotkey_was_pressed) {
                 ShowWindow(hConsole, SW_HIDE); // <--- show
                 is_activated_window = false;
                 pasteData();
-                std::iter_swap(copy_buffer.begin(), copy_buffer.begin() + selected_pointer);
+                std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
                 is_hotkey_was_pressed = true;
             }
             else if (isDelPressed && !is_hotkey_was_pressed) {
-                copy_buffer.erase(copy_buffer.begin() + selected_pointer);
+                buffers[print_state]->erase(buffers[print_state]->begin() + *pointers[print_state]);
                 system("cls");
                 printData();
+                gotoActiveLine();
                 is_hotkey_was_pressed = true;
             }
-            
+            else if (isEscPressed && !is_hotkey_was_pressed) {
+                ShowWindow(hConsole, SW_HIDE); // <--- show
+                is_activated_window = false;        
+                is_hotkey_was_pressed = true;
+            }
+                
         }
         
         if (!isKeyPressed() && is_hotkey_was_pressed) {
