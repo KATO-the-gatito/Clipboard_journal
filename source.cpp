@@ -30,21 +30,19 @@
 
 struct DataObject
 {
-#define PRINTSTATE_DATA 0
-#define PRINTSTATE_MARKED 1
     std::wstring data;
     int cntlines;
+    unsigned ID;
 };
 
-HWND hConsole = GetConsoleWindow();
+HWND hConsole = GetConsoleWindow(), hTargetWindow;
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
 std::deque<DataObject> copy_buffer, marked_buffer;
 std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
+unsigned ID_counter = 0;
 std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
-HWND hTargetWindow;
-bool is_activated_window = false;
-bool is_hotkey_was_pressed = false;
+bool is_activated_window = false, is_hotkey_was_pressed = false;
 
 void printfcl(const char* strin, ...) {
     size_t len = strlen(strin);
@@ -90,7 +88,7 @@ void copyData() {
     OpenClipboard(nullptr);
     HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
     wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hMem));
-    if (pText != nullptr) copy_buffer.push_front(DataObject{pText, countLines(pText)});
+    if (pText != nullptr) copy_buffer.push_front(DataObject{pText, countLines(pText), ++ID_counter});
     GlobalUnlock(hMem);
     CloseClipboard();
 }
@@ -304,7 +302,16 @@ int main() {
                 is_hotkey_was_pressed = true;
             }
             else if (isDelPressed && !is_hotkey_was_pressed) {
-                buffers[print_state]->erase(buffers[print_state]->begin() + *pointers[print_state]);
+                //buffers[print_state]->erase(buffers[print_state]->begin() + *pointers[print_state]);
+                unsigned ID_for_del = (buffers[print_state]->begin() + *pointers[print_state])->ID;
+                for (std::deque<DataObject>* buf : buffers) {
+                    for (int i = 0; i < buf->size(); i++) {
+                        if ((*buf)[i].ID == ID_for_del) 
+                            buf->erase(buf->begin() + i);
+                    }
+                    
+                }
+                                
                 system("cls");
                 printData();
                 gotoActiveLine();
