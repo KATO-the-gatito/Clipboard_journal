@@ -8,6 +8,9 @@
 2) **Enter** - вставить запись
 3) **Del** - удалить запись
 4) **Up/Down** - навигация по записям
+5) **Left/Right** - навигация по буферам
+6) **M** - добавить запись в "помеченные" (Marked data)
 
 # Вид программы
-<img width="382" height="161" alt="image" src="https://github.com/user-attachments/assets/f7a672e7-f0bc-4b09-b431-6227a35bbcc4" />
+<img width="864" height="290" alt="image" src="https://github.com/user-attachments/assets/ecde785b-ca99-4d9f-ad3a-cd7a8140f973" />
+
