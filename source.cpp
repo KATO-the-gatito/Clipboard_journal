@@ -38,7 +38,7 @@ struct DataObject
 HWND hConsole = GetConsoleWindow(), hTargetWindow;
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
 std::deque<DataObject> copy_buffer, marked_buffer;
-std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
+const std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
 std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
@@ -129,7 +129,6 @@ void pasteData() {
 }
 
 void printData() {
-    //std::cout << "-----------< Clipboard data >-----------\n";
     printfcl("@====[@Clipboard data@]=[@Marked data@]====@\n",
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
@@ -155,15 +154,12 @@ void printData() {
         }
         else PrintWString((buffers[print_state]->begin() + i)->data);
         
-        SetConsoleTextAttribute(hndl, TXTCOLOR_BOX);
-        std::cout << "\n========================================\n";
+        printfcl("@\n========================================\n@", TXTCOLOR_BOX, 7);
     }
     if (!i) {
-        SetConsoleTextAttribute(hndl, TXTCOLOR_NOTICE);
-        std::cout << "<The buffer is empty>\n";
+        printfcl("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
     }
-    SetConsoleTextAttribute(hndl, TXTCOLOR_NORMAL);
-    std::cout << "----------------------------------------\n";
+    printfcl("@----------------------------------------\n@", TXTCOLOR_NORMAL, 7);
     
 }
 
@@ -205,6 +201,14 @@ void gotoActiveLine() {
     moveCursor(0, coordLine);
 }
 
+bool is_have_ID(std::deque<DataObject>* buffer, unsigned ID) {
+    for (DataObject& obj : *buffer) {
+        if (obj.ID == ID)
+            return true;
+    }
+    return false;
+}
+
 ////////////////////////////////////////////////
 
 int main() { 
@@ -238,9 +242,12 @@ int main() {
         bool isLeftPressed = GetAsyncKeyState(VK_LEFT) & 0x8000;
         bool isRightPressed = GetAsyncKeyState(VK_RIGHT) & 0x8000;
 
+
+        // key handling
+
         if (isCtrlPressed && isAltPressed && isVPressed && !is_hotkey_was_pressed) {
             hTargetWindow = GetForegroundWindow();
-            ShowWindow(hConsole, SW_SHOW); // <--- show
+            ShowWindow(hConsole, SW_SHOW);
             ForceForegroundWindow(hConsole);
             system("cls");
             printData();
@@ -253,7 +260,7 @@ int main() {
             is_hotkey_was_pressed = true;
         }
 
-        if (is_activated_window) {
+        if (is_activated_window) { // key handling while the window is active
             if (isUpPressed && !is_hotkey_was_pressed) {
                 if (*pointers[print_state] - 1 >= 0) {
                     --*pointers[print_state];
@@ -291,7 +298,8 @@ int main() {
                 is_hotkey_was_pressed = true;
             }
             else if (isMPressed && !is_hotkey_was_pressed) {
-                if (print_state == 0) marked_buffer.push_front(copy_buffer[selected_pointer]);
+                if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID))
+                    marked_buffer.push_front(copy_buffer[selected_pointer]);
                 is_hotkey_was_pressed = true;
             }
             else if (isEnterPressed && !is_hotkey_was_pressed) {
