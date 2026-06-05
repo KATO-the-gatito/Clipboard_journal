@@ -10,23 +10,26 @@
 #include <algorithm>
 #include <stdarg.h>
 #include <array>
-//#include <ShlObj_core.h>
 
-#define HOTKEY_ID_ACTIVATEWINDOW 1
-#define HOTKEY_ID_COPY 2
+#define HOTKEY_ID_ACTIVATEWINDOW  1
+#define HOTKEY_ID_COPY            2
 
-#define TXTCOLOR_SELECTED 224 // 96
-#define TXTCOLOR_UNSELECTED 15
-#define TXTCOLOR_NORMAL 10
-#define TXTCOLOR_BOX 3
-#define TXTCOLOR_NOTICE 13
-#define TXTCOLOR_PS_SEL 143
-#define TXTCOLOR_PS_UNSEL 3
+#define TXTCOLOR_SELECTED    224 // 96
+#define TXTCOLOR_UNSELECTED  15
+#define TXTCOLOR_NORMAL      10
+#define TXTCOLOR_BOX         3
+#define TXTCOLOR_NOTICE      13
+#define TXTCOLOR_PS_SEL      143
+#define TXTCOLOR_PS_UNSEL    3
 
 #define MAX_STRING_SIZE 2500
 
-#define PRINTSTATE_DATA 0
-#define PRINTSTATE_MARKED 1
+#define PRINTSTATE_DATA    0
+#define PRINTSTATE_MARKED  1
+
+
+/******************************* structs *******************************/
+
 
 struct DataObject
 {
@@ -35,14 +38,23 @@ struct DataObject
     unsigned ID;
 };
 
-HWND hConsole = GetConsoleWindow(), hTargetWindow;
+
+/******************************** global vars *******************************/
+
+
+HWND hConsole = GetConsoleWindow(), hTargetWindow, hClipboardListenerWindow = nullptr;
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
+HHOOK hKeyboardHook = nullptr;
 std::deque<DataObject> copy_buffer, marked_buffer;
 const std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
 std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
-bool is_activated_window = false, is_hotkey_was_pressed = false;
+bool is_activated_window = false;
+
+
+/********************************* functions *******************************/
+
 
 void printfcl(const char* strin, ...) {
     size_t len = strlen(strin);
@@ -88,7 +100,17 @@ void copyData() {
     OpenClipboard(nullptr);
     HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
     wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hMem));
-    if (pText != nullptr) copy_buffer.push_front(DataObject{pText, countLines(pText), ++ID_counter});
+    if (pText != nullptr) {
+        bool is_not_duplicate = true;
+        for (DataObject& obj : copy_buffer) {
+            if (obj.data == pText) {
+                is_not_duplicate = false;
+                break;
+            }
+        }
+        if (is_not_duplicate)
+            copy_buffer.push_front(DataObject{pText, countLines(pText), ++ID_counter});
+    }
     GlobalUnlock(hMem);
     CloseClipboard();
 }
@@ -193,9 +215,11 @@ void moveCursor(SHORT x, SHORT y) {
 void gotoActiveLine() {
     SHORT coordLine = 0;
     for (int i = 0; i < *pointers[print_state]; i++) {
-        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE)
+        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE) {
             coordLine += (SHORT)(buffers[print_state]->begin() + i)->cntlines + 1;
-        else coordLine += countLines((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
+            continue;
+        }
+        coordLine += countLines((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
     }
     
     moveCursor(0, coordLine);
@@ -209,137 +233,154 @@ bool is_have_ID(std::deque<DataObject>* buffer, unsigned ID) {
     return false;
 }
 
-////////////////////////////////////////////////
 
-int main() { 
-    //system("mode con cols=80 lines=30");
-
-    ShowWindow(hConsole, SW_HIDE); // <--- show
-
-    WNDCLASSA wc = {};
-    wc.lpfnWndProc   = DefWindowProc;
-    wc.hInstance     = GetModuleHandle(nullptr);
-    wc.lpszClassName = "HiddenHotkeyWindow";
-    RegisterClassA(&wc);
-
-    HWND hWnd = CreateWindowExA(0, "HiddenHotkeyWindow", "", 0,
-                                   0, 0, 0, 0, HWND_MESSAGE,
-                                   nullptr, nullptr, nullptr);
-
-    while (1){   // main loop
-        bool isCtrlPressed = GetAsyncKeyState(VK_CONTROL) & 0x8000;
-        bool isShiftPressed = GetAsyncKeyState(VK_SHIFT) & 0x8000;
-        bool isAltPressed = GetAsyncKeyState(VK_MENU) & 0x8000;
-        bool isWinPressed = GetAsyncKeyState(VK_LWIN) || GetAsyncKeyState(VK_RWIN);
-        bool isVPressed = GetAsyncKeyState('V') & 0x8000;
-        bool isCPressed = GetAsyncKeyState('C') & 0x8000;
-        bool isMPressed = GetAsyncKeyState('M') & 0x8000;
-        bool isEscPressed = GetAsyncKeyState(VK_ESCAPE) & 0x8000;
-        bool isEnterPressed = GetAsyncKeyState(VK_RETURN) & 0x8000;
-        bool isDelPressed = GetAsyncKeyState(VK_DELETE) & 0x8000;
-        bool isDownPressed = GetAsyncKeyState(VK_DOWN) & 0x8000;
-        bool isUpPressed = GetAsyncKeyState(VK_UP) & 0x8000;
-        bool isLeftPressed = GetAsyncKeyState(VK_LEFT) & 0x8000;
-        bool isRightPressed = GetAsyncKeyState(VK_RIGHT) & 0x8000;
+/********************************* Listeners *******************************/
 
 
-        // key handling
+LRESULT CALLBACK ClipboardListener(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message)
+    {
+    case WM_CLIPBOARDUPDATE:
+        copyData();
+        break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
 
-        if (isCtrlPressed && isAltPressed && isVPressed && !is_hotkey_was_pressed) {
-            hTargetWindow = GetForegroundWindow();
-            ShowWindow(hConsole, SW_SHOW);
-            ForceForegroundWindow(hConsole);
-            system("cls");
-            printData();
-            gotoActiveLine();
-            is_activated_window = true;
-            is_hotkey_was_pressed = true;
-        }
-        else if (isCtrlPressed && isCPressed && !is_hotkey_was_pressed) {
-            copyData();
-            is_hotkey_was_pressed = true;
+bool ctrlPressed  = false;
+bool altPressed   = false;
+bool shiftPressed = false;
+bool winPressed   = false;
+
+LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION) {
+        KBDLLHOOKSTRUCT* pKey = (KBDLLHOOKSTRUCT*)lParam;
+
+        bool isKeyDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+        bool isKeyUp   = (wParam == WM_KEYUP   || wParam == WM_SYSKEYUP);
+
+        switch (pKey->vkCode) {
+            case VK_LCONTROL:  ctrlPressed  = isKeyDown; break;
+            case VK_LMENU:     altPressed   = isKeyDown; break; // Alt
+            case VK_LSHIFT:    shiftPressed = isKeyDown; break;
         }
 
-        if (is_activated_window) { // key handling while the window is active
-            if (isUpPressed && !is_hotkey_was_pressed) {
-                if (*pointers[print_state] - 1 >= 0) {
-                    --*pointers[print_state];
-                    system("cls");
-                    printData();
-                    gotoActiveLine();
-                }
-                is_hotkey_was_pressed = true;
-            }
-            else if (isDownPressed && !is_hotkey_was_pressed) {
-                if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
-                    ++*pointers[print_state];
-                    system("cls");
-                    printData();
-                    gotoActiveLine();
-                }
-                is_hotkey_was_pressed = true;
-            }
-            else if (isLeftPressed && !is_hotkey_was_pressed) {
-                if (print_state - 1 >= 0) {
-                    --print_state;
-                    system("cls");
-                    printData();
-                    gotoActiveLine();   
-                }
-                is_hotkey_was_pressed = true;
-            }
-            else if (isRightPressed && !is_hotkey_was_pressed) {
-                if (print_state + 1 < 2) {
-                    ++print_state;
-                    system("cls");
-                    printData();
-                    gotoActiveLine();   
-                }
-                is_hotkey_was_pressed = true;
-            }
-            else if (isMPressed && !is_hotkey_was_pressed) {
-                if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID))
-                    marked_buffer.push_front(copy_buffer[selected_pointer]);
-                is_hotkey_was_pressed = true;
-            }
-            else if (isEnterPressed && !is_hotkey_was_pressed) {
-                ShowWindow(hConsole, SW_HIDE); // <--- show
-                is_activated_window = false;
-                pasteData();
-                std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
-                is_hotkey_was_pressed = true;
-            }
-            else if (isDelPressed && !is_hotkey_was_pressed) {
-                //buffers[print_state]->erase(buffers[print_state]->begin() + *pointers[print_state]);
-                unsigned ID_for_del = (buffers[print_state]->begin() + *pointers[print_state])->ID;
-                for (std::deque<DataObject>* buf : buffers) {
-                    for (int i = 0; i < buf->size(); i++) {
-                        if ((*buf)[i].ID == ID_for_del) 
-                            buf->erase(buf->begin() + i);
-                    }
-                    
-                }
-                                
+        if (isKeyDown) { // key handling
+            if (ctrlPressed && altPressed && pKey->vkCode == 'V') {
+                hTargetWindow = GetForegroundWindow();
+                ShowWindow(hConsole, SW_SHOW);
+                ForceForegroundWindow(hConsole);
                 system("cls");
                 printData();
                 gotoActiveLine();
-                is_hotkey_was_pressed = true;
+                is_activated_window = true;
             }
-            else if (isEscPressed && !is_hotkey_was_pressed) {
-                ShowWindow(hConsole, SW_HIDE); // <--- show
-                is_activated_window = false;        
-                is_hotkey_was_pressed = true;
+            if (is_activated_window) { // key handling while the window is active
+                switch (pKey->vkCode)
+                {
+                case VK_UP:
+                    if (*pointers[print_state] - 1 >= 0) {
+                        --*pointers[print_state];
+                        system("cls");
+                        printData();
+                        gotoActiveLine();
+                    }
+                    break;
+
+                case VK_DOWN:
+                    if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
+                        ++*pointers[print_state];
+                        system("cls");
+                        printData();
+                        gotoActiveLine();
+                    }
+                    break;
+
+                case VK_LEFT:
+                    if (print_state - 1 >= 0) {
+                        --print_state;
+                        system("cls");
+                        printData();
+                        gotoActiveLine();   
+                    }
+                    break;
+
+                case VK_RIGHT:
+                    if (print_state + 1 < 2) {
+                        ++print_state;
+                        system("cls");
+                        printData();
+                        gotoActiveLine();   
+                    }
+                    break;
+
+                case 'M':
+                    if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID))
+                        marked_buffer.push_front(copy_buffer[selected_pointer]);
+                    break;
+
+                case VK_RETURN:
+                    ShowWindow(hConsole, SW_HIDE);
+                    is_activated_window = false;
+                    pasteData();
+                    std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
+                    break;
+
+                case VK_DELETE: {
+                    unsigned ID_for_del = (buffers[print_state]->begin() + *pointers[print_state])->ID;
+                    for (std::deque<DataObject>* buf : buffers) {
+                        for (int i = 0; i < buf->size(); i++) {
+                            if ((*buf)[i].ID == ID_for_del) 
+                                buf->erase(buf->begin() + i);
+                        }
+                        
+                    }
+                    system("cls");
+                    printData();
+                    gotoActiveLine();
+                    break; 
+                }
+                case VK_ESCAPE:
+                    ShowWindow(hConsole, SW_HIDE);
+                    is_activated_window = false;  
+                    break;
+                }
             }
-                
         }
-        
-        if (!isKeyPressed() && is_hotkey_was_pressed) {
-            is_hotkey_was_pressed = false;
-        }
-
-        Sleep(50);
-
     }
+    return CallNextHookEx(hKeyboardHook, nCode, wParam, lParam);
+
+}
+
+/******************************** main ********************************/
+
+int main() { 
+    ShowWindow(hConsole, SW_HIDE);
+
+    WNDCLASSEX wc = {0};
+    wc.cbSize = sizeof(WNDCLASSEX);
+    wc.lpfnWndProc = ClipboardListener;
+    wc.hInstance = GetModuleHandle(nullptr);
+    wc.lpszClassName = L"ClipboardListenerWindowClass";
+    RegisterClassEx(&wc);
+    hClipboardListenerWindow = CreateWindowEx(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
+    AddClipboardFormatListener(hClipboardListenerWindow);
+
+    hKeyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardListener, GetModuleHandle(nullptr), 0);
+
+    MSG msg;
+    while (GetMessage(&msg, nullptr, 0, 0)) { // main loop
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    RemoveClipboardFormatListener(hClipboardListenerWindow);
+    UnhookWindowsHookEx(hKeyboardHook);
     
     return 0;
 }
