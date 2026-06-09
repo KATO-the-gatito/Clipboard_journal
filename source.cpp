@@ -23,6 +23,7 @@
 #define TXTCOLOR_PS_UNSEL    3
 
 #define MAX_STRING_SIZE 2500
+#define MAX_STRING_LINES 25
 
 #define PRINTSTATE_DATA    0
 #define PRINTSTATE_MARKED  1
@@ -166,8 +167,10 @@ void printData() {
 
     for (; i < buffers[print_state]->size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
-        if ((buffers[print_state]->begin() + i)->data.size() > 2'500) {
-            clrprintf("@<A text with more than %d chars>@\n", TXTCOLOR_NOTICE, MAX_STRING_SIZE, TXTCOLOR_UNSELECTED);
+        if ((buffers[print_state]->begin() + i)->data.size() > MAX_STRING_SIZE ||
+            (buffers[print_state]->begin() + i)->cntlines > MAX_STRING_LINES) 
+        {
+            clrprintf("@<Too big text>@\n", TXTCOLOR_NOTICE, TXTCOLOR_UNSELECTED);
             is_notice = true;
         }
         if (i == *pointers[print_state])
