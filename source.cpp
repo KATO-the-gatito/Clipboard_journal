@@ -50,13 +50,13 @@ const std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_bu
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
 std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
-bool is_activated_window = false;
+bool is_activated_window = false, is_need_to_paste = false;
 
 
 /********************************* functions *******************************/
 
 
-void printfcl(const char* strin, ...) {
+void clrprintf(const char* strin, ...) {
     size_t len = strlen(strin);
     char str[100];
     char* chr = str;
@@ -128,7 +128,7 @@ void pasteData() {
         wchar_t* pMem = static_cast<wchar_t*>(GlobalLock(hMem));
         if (pMem) {
             wmemcpy(pMem, text.c_str(), text.length() + 1);
-            GlobalUnlock(pMem);
+            GlobalUnlock(hMem);
         }
         SetClipboardData(CF_UNICODETEXT, hMem);
     }
@@ -150,8 +150,11 @@ void pasteData() {
     SendInput(4, inputs, sizeof(INPUT));
 }
 
+
+
 void printData() {
-    printfcl("@====[@Clipboard data@]=[@Marked data@]====@\n",
+    system("cls");
+    clrprintf("@====[@Clipboard data@]=[@Marked data@]====@\n",
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
         TXTCOLOR_NORMAL,
@@ -164,34 +167,25 @@ void printData() {
     for (; i < buffers[print_state]->size(); i++) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
         if ((buffers[print_state]->begin() + i)->data.size() > 2'500) {
-            printfcl("@<A text with more than %d chars>@\n", TXTCOLOR_NOTICE, MAX_STRING_SIZE, TXTCOLOR_UNSELECTED);
+            clrprintf("@<A text with more than %d chars>@\n", TXTCOLOR_NOTICE, MAX_STRING_SIZE, TXTCOLOR_UNSELECTED);
             is_notice = true;
         }
         if (i == *pointers[print_state])
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         if (is_notice) {
             PrintWString((buffers[print_state]->begin() + i)->data.substr(0, 100));
-            printfcl("@...@", TXTCOLOR_UNSELECTED, 7);
+            clrprintf("@...@", TXTCOLOR_UNSELECTED, 7);
             is_notice = false;
         }
         else PrintWString((buffers[print_state]->begin() + i)->data);
         
-        printfcl("@\n========================================\n@", TXTCOLOR_BOX, 7);
+        clrprintf("@\n========================================\n@", TXTCOLOR_BOX, 7);
     }
     if (!i) {
-        printfcl("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
+        clrprintf("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
     }
-    printfcl("@----------------------------------------\n@", TXTCOLOR_NORMAL, 7);
+    clrprintf("@----------------------------------------\n@", TXTCOLOR_NORMAL, 7);
     
-}
-
-bool isKeyPressed() {
-    for (int vk = 0x08; vk <= 0xFF; ++vk) {  
-        if (GetAsyncKeyState(vk) & 0x8000) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void ForceForegroundWindow(HWND hWnd) {
@@ -275,7 +269,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 hTargetWindow = GetForegroundWindow();
                 ShowWindow(hConsole, SW_SHOW);
                 ForceForegroundWindow(hConsole);
-                system("cls");
                 printData();
                 gotoActiveLine();
                 is_activated_window = true;
@@ -286,7 +279,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 case VK_UP:
                     if (*pointers[print_state] - 1 >= 0) {
                         --*pointers[print_state];
-                        system("cls");
                         printData();
                         gotoActiveLine();
                     }
@@ -295,7 +287,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 case VK_DOWN:
                     if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
                         ++*pointers[print_state];
-                        system("cls");
                         printData();
                         gotoActiveLine();
                     }
@@ -304,7 +295,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 case VK_LEFT:
                     if (print_state - 1 >= 0) {
                         --print_state;
-                        system("cls");
                         printData();
                         gotoActiveLine();   
                     }
@@ -313,7 +303,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 case VK_RIGHT:
                     if (print_state + 1 < 2) {
                         ++print_state;
-                        system("cls");
                         printData();
                         gotoActiveLine();   
                     }
@@ -325,10 +314,8 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case VK_RETURN:
-                    ShowWindow(hConsole, SW_HIDE);
-                    is_activated_window = false;
-                    pasteData();
-                    std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
+                    PostMessage(hClipboardListenerWindow, WM_USER + 1, 0, 0);
+                    is_need_to_paste = true;
                     break;
 
                 case VK_DELETE: {
@@ -340,7 +327,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                         }
                         
                     }
-                    system("cls");
                     printData();
                     gotoActiveLine();
                     break; 
@@ -375,6 +361,14 @@ int main() {
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) { // main loop
+        if (is_need_to_paste) { //if Enter pressed
+            ShowWindow(hConsole, SW_HIDE);
+            is_activated_window = false;
+            pasteData();
+            std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
+            is_need_to_paste = false;
+        }
+
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
