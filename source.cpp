@@ -11,9 +11,6 @@
 #include <stdarg.h>
 #include <array>
 
-#define HOTKEY_ID_ACTIVATEWINDOW  1
-#define HOTKEY_ID_COPY            2
-
 #define TXTCOLOR_SELECTED    224 // 96
 #define TXTCOLOR_UNSELECTED  15
 #define TXTCOLOR_NORMAL      10
@@ -28,6 +25,23 @@
 #define PRINTSTATE_DATA    0
 #define PRINTSTATE_MARKED  1
 
+#define TOP_OFFSET 6
+
+/******************************* decls *******************************/
+
+struct LR_borders;
+struct DataObject;
+void clrprintf(const char* strin, ...);
+void PrintWString(const std::wstring& text);
+int countLinesStr(const std::wstring& text);
+void copyData();
+void pasteData();
+void printData();
+void ForceForegroundWindow(HWND hWnd);
+void moveCursor(SHORT x, SHORT y);
+int countLinesBuffer(int left, int right);
+void gotoActiveLine(int left_brd);
+
 
 /******************************* structs *******************************/
 
@@ -37,6 +51,36 @@ struct DataObject
     std::wstring data;
     int cntlines;
     unsigned ID;
+};
+
+struct LR_borders
+{
+    LR_borders(std::deque<DataObject> buffer, int selected, HANDLE hndl)
+    {
+        if (buffer.size() == 0) {
+            left = 0;
+            right = 0;
+        }
+
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        GetConsoleScreenBufferInfo(hndl, &csbi);
+        int windowWidth  = csbi.srWindow.Right - csbi.srWindow.Left + 1;
+        int windowHeight = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;
+
+        for (int shift = 1; shift < 50; ++shift) {
+            int tmp_l = selected - shift > 0 ? selected - shift : 0;
+            int tmp_r = selected + shift < buffer.size() ? selected + shift : buffer.size();
+            if (countLinesBuffer(tmp_l, tmp_r) > windowHeight + 25) {
+                left = tmp_l;
+                right = tmp_r;
+                return;
+            }
+        }
+        left = 0;
+        right = buffer.size();
+        
+    }
+    int left, right;
 };
 
 
@@ -55,7 +99,6 @@ bool is_activated_window = false, is_need_to_paste = false;
 
 
 /********************************* functions *******************************/
-
 
 void clrprintf(const char* strin, ...) {
     size_t len = strlen(strin);
@@ -88,7 +131,7 @@ void PrintWString(const std::wstring& text) {
     WriteConsoleW(hOut, text.c_str(), text.length(), &written, nullptr);
 }
 
-int countLines(const std::wstring& text) {
+int countLinesStr(const std::wstring& text) {
     int cnt = 1;
     for (wchar_t ch : text) {
         if (ch == L'\n')
@@ -110,7 +153,7 @@ void copyData() {
             }
         }
         if (is_not_duplicate)
-            copy_buffer.push_front(DataObject{pText, countLines(pText), ++ID_counter});
+            copy_buffer.push_front(DataObject{pText, countLinesStr(pText), ++ID_counter});
     }
     GlobalUnlock(hMem);
     CloseClipboard();
@@ -162,10 +205,12 @@ void printData() {
         print_state == PRINTSTATE_MARKED ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
         TXTCOLOR_NORMAL,
         7);
+
     int i = 0;
     bool is_notice = false;
+    LR_borders borders(*buffers[print_state], *pointers[print_state], hndl);
 
-    for (; i < buffers[print_state]->size(); i++) {
+    for (i = borders.left; i < borders.right; ++i) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
         if ((buffers[print_state]->begin() + i)->data.size() > MAX_STRING_SIZE ||
             (buffers[print_state]->begin() + i)->cntlines > MAX_STRING_LINES) 
@@ -188,7 +233,7 @@ void printData() {
         clrprintf("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
     }
     clrprintf("@----------------------------------------\n@", TXTCOLOR_NORMAL, 7);
-    
+    gotoActiveLine(borders.left);
 }
 
 void ForceForegroundWindow(HWND hWnd) {
@@ -209,17 +254,23 @@ void moveCursor(SHORT x, SHORT y) {
     SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
 }
 
-void gotoActiveLine() {
-    SHORT coordLine = 0;
-    for (int i = 0; i < *pointers[print_state]; i++) {
-        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE) {
-            coordLine += (SHORT)(buffers[print_state]->begin() + i)->cntlines + 1;
+int countLinesBuffer(int left, int right) {
+    SHORT lines = 0;
+    for (int i = left; i < right; i++) {
+        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE &&
+            (buffers[print_state]->begin() + i)->cntlines <= MAX_STRING_LINES)
+        {
+            lines += (SHORT)(buffers[print_state]->begin() + i)->cntlines + 1;
             continue;
         }
-        coordLine += countLines((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
+        lines += countLinesStr((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
     }
-    
-    moveCursor(0, coordLine);
+    return lines;
+}
+
+void gotoActiveLine(int left_brd) {
+    SHORT coordLine = countLinesBuffer(left_brd, *pointers[print_state]);
+    moveCursor(0, coordLine > TOP_OFFSET ? coordLine - TOP_OFFSET : 0);
 }
 
 bool is_have_ID(std::deque<DataObject>* buffer, unsigned ID) {
@@ -273,7 +324,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                 ShowWindow(hConsole, SW_SHOW);
                 ForceForegroundWindow(hConsole);
                 printData();
-                gotoActiveLine();
                 is_activated_window = true;
             }
             if (is_activated_window) { // key handling while the window is active
@@ -283,7 +333,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     if (*pointers[print_state] - 1 >= 0) {
                         --*pointers[print_state];
                         printData();
-                        gotoActiveLine();
                     }
                     break;
 
@@ -291,23 +340,20 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
                         ++*pointers[print_state];
                         printData();
-                        gotoActiveLine();
                     }
                     break;
 
                 case VK_LEFT:
                     if (print_state - 1 >= 0) {
                         --print_state;
-                        printData();
-                        gotoActiveLine();   
+                        printData(); 
                     }
                     break;
 
                 case VK_RIGHT:
                     if (print_state + 1 < 2) {
                         ++print_state;
-                        printData();
-                        gotoActiveLine();   
+                        printData(); 
                     }
                     break;
 
@@ -331,7 +377,6 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                         
                     }
                     printData();
-                    gotoActiveLine();
                     break; 
                 }
                 case VK_ESCAPE:
