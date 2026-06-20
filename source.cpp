@@ -94,6 +94,7 @@ std::deque<DataObject> copy_buffer, marked_buffer;
 const std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
+unsigned long long size_of_all_strings = 0;
 std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
 bool is_activated_window = false, is_need_to_paste = false;
 
@@ -152,8 +153,10 @@ void copyData() {
                 break;
             }
         }
-        if (is_not_duplicate)
+        if (is_not_duplicate) {
             copy_buffer.push_front(DataObject{pText, countLinesStr(pText), ++ID_counter});
+            size_of_all_strings += wcslen(pText) * sizeof(wchar_t);
+        }
     }
     GlobalUnlock(hMem);
     CloseClipboard();
@@ -198,13 +201,21 @@ void pasteData() {
 
 void printData() {
     system("cls");
+    clrprintf("@copied: @%d@ texts | marked: @%d@ texts | size: @%d@ bytes (@%d@ KiB)@\n", 
+        TXTCOLOR_UNSELECTED, 11, copy_buffer.size(),
+        TXTCOLOR_UNSELECTED, 11, marked_buffer.size(),
+        TXTCOLOR_UNSELECTED, 11, size_of_all_strings,
+        TXTCOLOR_UNSELECTED, 11, size_of_all_strings / 0x400,
+        TXTCOLOR_UNSELECTED, 7
+    );
     clrprintf("@====[@Clipboard data@]=[@Marked data@]====@\n",
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_MARKED ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
         TXTCOLOR_NORMAL,
-        7);
+        7
+    );
 
     int i = 0;
     bool is_notice = false;
@@ -232,7 +243,7 @@ void printData() {
     if (!i) {
         clrprintf("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
     }
-    clrprintf("@----------------------------------------\n@", TXTCOLOR_NORMAL, 7);
+    clrprintf("@============<End of buffer>============\n@", TXTCOLOR_NORMAL, 7);
     gotoActiveLine(borders.left);
 }
 
@@ -255,7 +266,7 @@ void moveCursor(SHORT x, SHORT y) {
 }
 
 int countLinesBuffer(int left, int right) {
-    SHORT lines = 0;
+    SHORT lines = 2;
     for (int i = left; i < right; i++) {
         if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE &&
             (buffers[print_state]->begin() + i)->cntlines <= MAX_STRING_LINES)
@@ -358,8 +369,10 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case 'M':
-                    if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID))
+                    if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID)) {
                         marked_buffer.push_front(copy_buffer[selected_pointer]);
+                        printData();
+                    }
                     break;
 
                 case VK_RETURN:
