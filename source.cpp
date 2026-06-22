@@ -125,7 +125,6 @@ void clrprintf(const char* strin, ...) {
     for (int i = 0; i < len; ++i) {
         if (str[i] == '@') {
             str[i] = '\0';
-            //vprintf(chr, colors);
             vsprintf(tmp_str, chr, colors);
             WriteConsoleA(hHiddenConsoleBuffer, tmp_str, strlen(tmp_str), nullptr, nullptr);
             for (int j = 0; j < cntr_of_cmds; j++)
@@ -260,10 +259,10 @@ std::string convert_size(size_t len) {
     if (len < 0x400) 
         return std::to_string(len) + " bytes";
     if (len < 0x100'000)
-        return std::to_string(len / 0x400) + " KiB";
+        return std::to_string(len >> 10) + " KiB";
     if (len < 0x40'000'000)
-        return std::to_string(len / 0x100'000) + " MiB";
-    return std::to_string(len / 0x40'000'000) + " GiB";
+        return std::to_string(len >> 20) + " MiB";
+    return std::to_string(len >> 30) + " GiB";
 }
 
 void ClearBuffer(HANDLE hBuffer) {
@@ -273,11 +272,9 @@ void ClearBuffer(HANDLE hBuffer) {
     DWORD totalCells = csbi.dwSize.X * csbi.dwSize.Y;
     DWORD written;
 
-    // Заполняем пробелами с текущими атрибутами
     FillConsoleOutputCharacter(hBuffer, ' ', totalCells, {0, 0}, &written);
     FillConsoleOutputAttribute(hBuffer, csbi.wAttributes, totalCells, {0, 0}, &written);
 
-    // Курсор в начало
     SetConsoleCursorPosition(hBuffer, {0, 0});
 }
 
@@ -428,6 +425,7 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                             }
                         }
                     }
+
                     printData();
                     break; 
                 }
