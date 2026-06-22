@@ -6,6 +6,7 @@
 #include <iostream>
 #include <vector>
 #include <deque>
+#include <format>
 #include <string>
 #include <algorithm>
 #include <stdarg.h>
@@ -17,7 +18,7 @@
 #define TXTCOLOR_BOX         3
 #define TXTCOLOR_NOTICE      13
 #define TXTCOLOR_PS_SEL      143
-#define TXTCOLOR_PS_UNSEL    3
+#define TXTCOLOR_PS_UNSEL    15
 
 #define MAX_STRING_SIZE 2500
 #define MAX_STRING_LINES 25
@@ -37,6 +38,7 @@ int countLinesStr(const std::wstring& text);
 void copyData();
 void pasteData();
 void printData();
+std::string convert_size(size_t len);
 void ForceForegroundWindow(HWND hWnd);
 void moveCursor(SHORT x, SHORT y);
 int countLinesBuffer(int left, int right);
@@ -48,9 +50,15 @@ void gotoActiveLine(int left_brd);
 
 struct DataObject
 {
-    std::wstring data;
-    int cntlines;
-    unsigned ID;
+    std::wstring data; // the copied text
+    int cntlines; // the number of all lines of text
+    unsigned ID; // the unique ID of the text
+};
+
+struct BufferObject
+{
+    std::deque<DataObject> buffer; // the buffer containing the copied texts
+    size_t size; // the total weight of all texts in the buffer
 };
 
 struct LR_borders
@@ -80,6 +88,7 @@ struct LR_borders
         right = buffer.size();
         
     }
+
     int left, right;
 };
 
@@ -90,20 +99,19 @@ struct LR_borders
 HWND hConsole = GetConsoleWindow(), hTargetWindow, hClipboardListenerWindow = nullptr;
 HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
 HHOOK hKeyboardHook = nullptr;
-std::deque<DataObject> copy_buffer, marked_buffer;
-const std::array<std::deque<DataObject>*, 2> buffers = {&copy_buffer, &marked_buffer};
+BufferObject copy_buffer, marked_buffer;
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
-unsigned long long size_of_all_strings = 0;
-std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
 bool is_activated_window = false, is_need_to_paste = false;
+const std::array<BufferObject*, 2> buffers = {&copy_buffer, &marked_buffer};
+const std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
 
 
 /********************************* functions *******************************/
 
-void clrprintf(const char* strin, ...) {
+void clrprintf(const char* strin, ...) { // formatted and colored printing
     size_t len = strlen(strin);
-    char str[100];
+    char str[1024];
     char* chr = str;
     strcpy(str, strin);
     int cntr_of_cmds = 0;
@@ -115,14 +123,14 @@ void clrprintf(const char* strin, ...) {
             str[i] = '\0';
             vprintf(chr, colors);
             for (int j = 0; j < cntr_of_cmds; j++)
-                { va_arg(colors, int); }
+                va_arg(colors, int);
             chr = str + i + 1;
             cntr_of_cmds = 0;
             SetConsoleTextAttribute(hndl, va_arg(colors, int));
         }
         if (str[i] == '%' && str[i + 1] != '%' && str[i - 1] != '%') ++cntr_of_cmds;
     }
-    printf(chr);
+    vprintf(chr, colors);
     va_end(colors);
 }
 
@@ -146,24 +154,22 @@ void copyData() {
     HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
     wchar_t* pText = static_cast<wchar_t*>(GlobalLock(hMem));
     if (pText != nullptr) {
-        bool is_not_duplicate = true;
-        for (DataObject& obj : copy_buffer) {
-            if (obj.data == pText) {
-                is_not_duplicate = false;
-                break;
+        for (int i = 0; i < copy_buffer.buffer.size(); i++) {
+            if (copy_buffer.buffer[i].data == pText) {
+                std::rotate(copy_buffer.buffer.begin(), copy_buffer.buffer.begin() + i, copy_buffer.buffer.end());
+                goto exit;
             }
         }
-        if (is_not_duplicate) {
-            copy_buffer.push_front(DataObject{pText, countLinesStr(pText), ++ID_counter});
-            size_of_all_strings += wcslen(pText) * sizeof(wchar_t);
-        }
+        copy_buffer.buffer.push_front(DataObject{pText, countLinesStr(pText), ++ID_counter});
+        copy_buffer.size += wcslen(pText) * sizeof(wchar_t);
     }
+exit:
     GlobalUnlock(hMem);
     CloseClipboard();
 }
 
 void pasteData() {
-    std::wstring text = (buffers[print_state]->begin() + *pointers[print_state])->data;
+    std::wstring text = (buffers[print_state]->buffer.begin() + *pointers[print_state])->data;
 
     if (!OpenClipboard(nullptr)) return;
     EmptyClipboard();
@@ -197,34 +203,29 @@ void pasteData() {
     SendInput(4, inputs, sizeof(INPUT));
 }
 
-
-
 void printData() {
     system("cls");
-    clrprintf("@copied: @%d@ texts | marked: @%d@ texts | size: @%d@ bytes (@%d@ KiB)@\n", 
-        TXTCOLOR_UNSELECTED, 11, copy_buffer.size(),
-        TXTCOLOR_UNSELECTED, 11, marked_buffer.size(),
-        TXTCOLOR_UNSELECTED, 11, size_of_all_strings,
-        TXTCOLOR_UNSELECTED, 11, size_of_all_strings / 0x400,
-        TXTCOLOR_UNSELECTED, 7
-    );
-    clrprintf("@====[@Clipboard data@]=[@Marked data@]====@\n",
+    clrprintf("@====[@Clipboard data@]=[@Marked data@]====\n",
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_MARKED ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
-        TXTCOLOR_NORMAL,
-        7
+        TXTCOLOR_NORMAL
     );
+    clrprintf("@elements: @%d@ | size: @%s\n", 
+        7, 11, buffers[print_state]->buffer.size(),
+        7, 11, convert_size(buffers[print_state]->size).c_str()
+    );
+    clrprintf("@=======================================\n", TXTCOLOR_NORMAL);
 
     int i = 0;
     bool is_notice = false;
-    LR_borders borders(*buffers[print_state], *pointers[print_state], hndl);
+    LR_borders borders(buffers[print_state]->buffer, *pointers[print_state], hndl);
 
     for (i = borders.left; i < borders.right; ++i) {
         SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
-        if ((buffers[print_state]->begin() + i)->data.size() > MAX_STRING_SIZE ||
-            (buffers[print_state]->begin() + i)->cntlines > MAX_STRING_LINES) 
+        if ((buffers[print_state]->buffer.begin() + i)->data.size() > MAX_STRING_SIZE ||
+            (buffers[print_state]->buffer.begin() + i)->cntlines > MAX_STRING_LINES) 
         {
             clrprintf("@<Too big text>@\n", TXTCOLOR_NOTICE, TXTCOLOR_UNSELECTED);
             is_notice = true;
@@ -232,19 +233,28 @@ void printData() {
         if (i == *pointers[print_state])
             SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
         if (is_notice) {
-            PrintWString((buffers[print_state]->begin() + i)->data.substr(0, 100));
-            clrprintf("@...@", TXTCOLOR_UNSELECTED, 7);
+            PrintWString((buffers[print_state]->buffer.begin() + i)->data.substr(0, 100));
+            clrprintf("@...", TXTCOLOR_UNSELECTED);
             is_notice = false;
         }
-        else PrintWString((buffers[print_state]->begin() + i)->data);
+        else PrintWString((buffers[print_state]->buffer.begin() + i)->data);
         
-        clrprintf("@\n========================================\n@", TXTCOLOR_BOX, 7);
+        clrprintf("@\n=======================================\n", TXTCOLOR_BOX);
     }
-    if (!i) {
-        clrprintf("@<The buffer is empty>@\n", TXTCOLOR_NOTICE, 7);
-    }
-    clrprintf("@============<End of buffer>============\n@", TXTCOLOR_NORMAL, 7);
+    if (!i) clrprintf("@<The buffer is empty>\n", TXTCOLOR_NOTICE);
+
+    clrprintf("@============<End of buffer>============\n", TXTCOLOR_NORMAL);
     gotoActiveLine(borders.left);
+}
+
+std::string convert_size(size_t len) {
+    if (len < 0x400) 
+        return std::to_string(len) + " bytes";
+    if (len < 0x100'000)
+        return std::to_string(len / 0x400) + " KiB";
+    if (len < 0x40'000'000)
+        return std::to_string(len / 0x100'000) + " MiB";
+    return std::to_string(len / 0x40'000'000) + " GiB";
 }
 
 void ForceForegroundWindow(HWND hWnd) {
@@ -266,15 +276,15 @@ void moveCursor(SHORT x, SHORT y) {
 }
 
 int countLinesBuffer(int left, int right) {
-    SHORT lines = 2;
+    SHORT lines = 3;
     for (int i = left; i < right; i++) {
-        if ((buffers[print_state]->begin() + i)->data.size() <= MAX_STRING_SIZE &&
-            (buffers[print_state]->begin() + i)->cntlines <= MAX_STRING_LINES)
+        if ((buffers[print_state]->buffer.begin() + i)->data.size() <= MAX_STRING_SIZE &&
+            (buffers[print_state]->buffer.begin() + i)->cntlines <= MAX_STRING_LINES)
         {
-            lines += (SHORT)(buffers[print_state]->begin() + i)->cntlines + 1;
+            lines += (SHORT)(buffers[print_state]->buffer.begin() + i)->cntlines + 1;
             continue;
         }
-        lines += countLinesStr((buffers[print_state]->begin() + i)->data.substr(0, 100)) + 2;
+        lines += countLinesStr((buffers[print_state]->buffer.begin() + i)->data.substr(0, 100)) + 2;
     }
     return lines;
 }
@@ -296,6 +306,7 @@ bool is_have_ID(std::deque<DataObject>* buffer, unsigned ID) {
 /********************************* Listeners *******************************/
 
 
+// a function that is activated if the contents of the clipboard have changed
 LRESULT CALLBACK ClipboardListener(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message)
     {
@@ -316,6 +327,7 @@ bool altPressed   = false;
 bool shiftPressed = false;
 bool winPressed   = false;
 
+// a function that is activated by pressing any key.
 LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         KBDLLHOOKSTRUCT* pKey = (KBDLLHOOKSTRUCT*)lParam;
@@ -348,7 +360,7 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case VK_DOWN:
-                    if (*pointers[print_state] + 1 < buffers[print_state]->size()) {
+                    if (*pointers[print_state] + 1 < buffers[print_state]->buffer.size()) {
                         ++*pointers[print_state];
                         printData();
                     }
@@ -369,8 +381,9 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case 'M':
-                    if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer, copy_buffer[selected_pointer].ID)) {
-                        marked_buffer.push_front(copy_buffer[selected_pointer]);
+                    if (print_state == PRINTSTATE_DATA && !is_have_ID(&marked_buffer.buffer, copy_buffer.buffer[selected_pointer].ID)) {
+                        marked_buffer.size += copy_buffer.buffer[selected_pointer].data.length() * sizeof(wchar_t);
+                        marked_buffer.buffer.push_front(copy_buffer.buffer[selected_pointer]);
                         printData();
                     }
                     break;
@@ -381,13 +394,15 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case VK_DELETE: {
-                    unsigned ID_for_del = (buffers[print_state]->begin() + *pointers[print_state])->ID;
-                    for (std::deque<DataObject>* buf : buffers) {
+                    unsigned ID_for_del = (buffers[print_state]->buffer.begin() + *pointers[print_state])->ID;
+                    for (BufferObject* bfr : buffers) {
+                        std::deque<DataObject>* buf = &bfr->buffer;
                         for (int i = 0; i < buf->size(); i++) {
-                            if ((*buf)[i].ID == ID_for_del) 
+                            if ((*buf)[i].ID == ID_for_del) {
+                                bfr->size -= (size_t)((buf->begin() + i)->data.length() * sizeof(wchar_t));
                                 buf->erase(buf->begin() + i);
+                            }
                         }
-                        
                     }
                     printData();
                     break; 
@@ -426,7 +441,7 @@ int main() {
             ShowWindow(hConsole, SW_HIDE);
             is_activated_window = false;
             pasteData();
-            std::iter_swap(buffers[print_state]->begin(), buffers[print_state]->begin() + *pointers[print_state]);
+            std::rotate(buffers[print_state]->buffer.begin(), buffers[print_state]->buffer.begin() + *pointers[print_state], buffers[print_state]->buffer.end());
             is_need_to_paste = false;
         }
 
