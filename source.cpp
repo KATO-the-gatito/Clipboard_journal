@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <stdarg.h>
 #include <array>
+#include <utility>
 
 #define TXTCOLOR_SELECTED    224 // 96
 #define TXTCOLOR_UNSELECTED  15
@@ -39,6 +40,7 @@ void copyData();
 void pasteData();
 void printData();
 std::string convert_size(size_t len);
+void ClearBuffer(HANDLE hBuffer);
 void ForceForegroundWindow(HWND hWnd);
 void moveCursor(SHORT x, SHORT y);
 int countLinesBuffer(int left, int right);
@@ -97,7 +99,7 @@ struct LR_borders
 
 
 HWND hConsole = GetConsoleWindow(), hTargetWindow, hClipboardListenerWindow = nullptr;
-HANDLE hndl = GetStdHandle(STD_OUTPUT_HANDLE);
+HANDLE hActiveConsoleBuffer = GetStdHandle(STD_OUTPUT_HANDLE), hHiddenConsoleBuffer;
 HHOOK hKeyboardHook = nullptr;
 BufferObject copy_buffer, marked_buffer;
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
@@ -109,9 +111,11 @@ const std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd}
 
 /********************************* functions *******************************/
 
-void clrprintf(const char* strin, ...) { // formatted and colored printing
+
+// formatted and colored printing
+void clrprintf(const char* strin, ...) { 
     size_t len = strlen(strin);
-    char str[1024];
+    char str[1024], tmp_str[1024];
     char* chr = str;
     strcpy(str, strin);
     int cntr_of_cmds = 0;
@@ -121,23 +125,25 @@ void clrprintf(const char* strin, ...) { // formatted and colored printing
     for (int i = 0; i < len; ++i) {
         if (str[i] == '@') {
             str[i] = '\0';
-            vprintf(chr, colors);
+            //vprintf(chr, colors);
+            vsprintf(tmp_str, chr, colors);
+            WriteConsoleA(hHiddenConsoleBuffer, tmp_str, strlen(tmp_str), nullptr, nullptr);
             for (int j = 0; j < cntr_of_cmds; j++)
                 va_arg(colors, int);
             chr = str + i + 1;
             cntr_of_cmds = 0;
-            SetConsoleTextAttribute(hndl, va_arg(colors, int));
+            SetConsoleTextAttribute(hHiddenConsoleBuffer, va_arg(colors, int));
         }
         if (str[i] == '%' && str[i + 1] != '%' && str[i - 1] != '%') ++cntr_of_cmds;
     }
-    vprintf(chr, colors);
+    vsprintf(tmp_str, chr, colors);
+    WriteConsoleA(hHiddenConsoleBuffer, tmp_str, strlen(tmp_str), nullptr, nullptr);
     va_end(colors);
 }
 
 void PrintWString(const std::wstring& text) {
-    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
     DWORD written;
-    WriteConsoleW(hOut, text.c_str(), text.length(), &written, nullptr);
+    WriteConsoleW(hHiddenConsoleBuffer, text.c_str(), text.length(), &written, nullptr);
 }
 
 int countLinesStr(const std::wstring& text) {
@@ -204,7 +210,7 @@ void pasteData() {
 }
 
 void printData() {
-    system("cls");
+    ClearBuffer(hHiddenConsoleBuffer);
     clrprintf("@====[@Clipboard data@]=[@Marked data@]====\n",
         TXTCOLOR_NORMAL,
         print_state == PRINTSTATE_DATA ? TXTCOLOR_PS_SEL : TXTCOLOR_PS_UNSEL, 
@@ -220,10 +226,10 @@ void printData() {
 
     int i = 0;
     bool is_notice = false;
-    LR_borders borders(buffers[print_state]->buffer, *pointers[print_state], hndl);
+    LR_borders borders(buffers[print_state]->buffer, *pointers[print_state], hHiddenConsoleBuffer);
 
     for (i = borders.left; i < borders.right; ++i) {
-        SetConsoleTextAttribute(hndl, TXTCOLOR_UNSELECTED);
+        SetConsoleTextAttribute(hHiddenConsoleBuffer, TXTCOLOR_UNSELECTED);
         if ((buffers[print_state]->buffer.begin() + i)->data.size() > MAX_STRING_SIZE ||
             (buffers[print_state]->buffer.begin() + i)->cntlines > MAX_STRING_LINES) 
         {
@@ -231,7 +237,7 @@ void printData() {
             is_notice = true;
         }
         if (i == *pointers[print_state])
-            SetConsoleTextAttribute(hndl, TXTCOLOR_SELECTED);
+            SetConsoleTextAttribute(hHiddenConsoleBuffer, TXTCOLOR_SELECTED);
         if (is_notice) {
             PrintWString((buffers[print_state]->buffer.begin() + i)->data.substr(0, 100));
             clrprintf("@...", TXTCOLOR_UNSELECTED);
@@ -245,6 +251,9 @@ void printData() {
 
     clrprintf("@============<End of buffer>============\n", TXTCOLOR_NORMAL);
     gotoActiveLine(borders.left);
+
+    SetConsoleActiveScreenBuffer(hHiddenConsoleBuffer);
+    std::swap(hActiveConsoleBuffer, hHiddenConsoleBuffer);
 }
 
 std::string convert_size(size_t len) {
@@ -255,6 +264,21 @@ std::string convert_size(size_t len) {
     if (len < 0x40'000'000)
         return std::to_string(len / 0x100'000) + " MiB";
     return std::to_string(len / 0x40'000'000) + " GiB";
+}
+
+void ClearBuffer(HANDLE hBuffer) {
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hBuffer, &csbi);
+
+    DWORD totalCells = csbi.dwSize.X * csbi.dwSize.Y;
+    DWORD written;
+
+    // Заполняем пробелами с текущими атрибутами
+    FillConsoleOutputCharacter(hBuffer, ' ', totalCells, {0, 0}, &written);
+    FillConsoleOutputAttribute(hBuffer, csbi.wAttributes, totalCells, {0, 0}, &written);
+
+    // Курсор в начало
+    SetConsoleCursorPosition(hBuffer, {0, 0});
 }
 
 void ForceForegroundWindow(HWND hWnd) {
@@ -272,7 +296,7 @@ void moveCursor(SHORT x, SHORT y) {
     COORD coord;
     coord.X = x;
     coord.Y = y;
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+    SetConsoleCursorPosition(hHiddenConsoleBuffer, coord);
 }
 
 int countLinesBuffer(int left, int right) {
@@ -423,6 +447,14 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
 
 int main() { 
     ShowWindow(hConsole, SW_HIDE);
+
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(hActiveConsoleBuffer, &csbi);
+
+    hHiddenConsoleBuffer = CreateConsoleScreenBuffer(
+        GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+        CONSOLE_TEXTMODE_BUFFER, nullptr);
+    SetConsoleScreenBufferSize(hHiddenConsoleBuffer, csbi.dwSize);
 
     WNDCLASSEX wc = {0};
     wc.cbSize = sizeof(WNDCLASSEX);
