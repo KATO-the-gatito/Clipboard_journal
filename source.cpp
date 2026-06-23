@@ -256,11 +256,11 @@ void printData() {
 }
 
 std::string convert_size(size_t len) {
-    if (len < 0x400) 
+    if (!(len >> 10)) 
         return std::to_string(len) + " bytes";
-    if (len < 0x100'000)
+    if (!(len >> 20))
         return std::to_string(len >> 10) + " KiB";
-    if (len < 0x40'000'000)
+    if (!(len >> 30))
         return std::to_string(len >> 20) + " MiB";
     return std::to_string(len >> 30) + " GiB";
 }
