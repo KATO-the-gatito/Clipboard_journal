@@ -28,6 +28,7 @@
 #define PRINTSTATE_MARKED  1
 
 #define TOP_OFFSET 6
+#define CNT_OF_BUFFERS 2
 
 /******************************* decls *******************************/
 
@@ -105,8 +106,8 @@ BufferObject copy_buffer, marked_buffer;
 int selected_pointer = 0, selected_pointer_mrkd = 0, print_state = 0;
 unsigned ID_counter = 0;
 bool is_activated_window = false, is_need_to_paste = false;
-const std::array<BufferObject*, 2> buffers = {&copy_buffer, &marked_buffer};
-const std::array<int*, 2> pointers = {&selected_pointer, &selected_pointer_mrkd};
+const std::array<BufferObject*, CNT_OF_BUFFERS> buffers = {&copy_buffer, &marked_buffer};
+const std::array<int*, CNT_OF_BUFFERS> pointers = {&selected_pointer, &selected_pointer_mrkd};
 
 
 /********************************* functions *******************************/
@@ -395,7 +396,7 @@ LRESULT CALLBACK KeyboardListener(int nCode, WPARAM wParam, LPARAM lParam) {
                     break;
 
                 case VK_RIGHT:
-                    if (print_state + 1 < 2) {
+                    if (print_state + 1 < CNT_OF_BUFFERS) {
                         ++print_state;
                         printData(); 
                     }
